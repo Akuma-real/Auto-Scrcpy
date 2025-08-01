@@ -1,6 +1,6 @@
 [package]
 name = "scrcpy-launcher"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
@@ -12,4 +12,7 @@ zip = "0.6"
 sha2 = "0.10"
 hex = "0.4"
 dirs = "5.0"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "wincon", "processthreadsapi", "tlhelp32", "handleapi", "synchapi", "winbase", "winnt", "winerror", "errhandlingapi"] }
 
