@@ -55,7 +55,7 @@ impl GitHubClient {
         println!("🔍 正在检查最新版本信息...");
         
         // 从我们的仓库读取版本信息文件
-        let url = "https://raw.githubusercontent.com/Akuma-real/auto-scrcpy/main/latest_version";
+        let url = "https://raw.githubusercontent.com/Akuma-real/Auto-Scrcpy/main/latest_version";
         
         let response = self.client
             .get(url)
