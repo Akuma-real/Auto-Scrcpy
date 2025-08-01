@@ -1,0 +1,167 @@
+name: 自动构建和发布
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 检查是否需要发布新版本
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.version-check.outputs.should-release }}
+      new-version: ${{ steps.version-check.outputs.new-version }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 检查版本变化
+      id: version-check
+      run: |
+        # 获取当前版本
+        CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+        echo "当前版本: $CURRENT_VERSION"
+        
+        # 检查是否存在相同版本的tag
+        if git tag -l | grep -q "^v$CURRENT_VERSION$"; then
+          echo "版本 v$CURRENT_VERSION 已存在，跳过发布"
+          echo "should-release=false" >> $GITHUB_OUTPUT
+        else
+          echo "新版本 v$CURRENT_VERSION 需要发布"
+          echo "should-release=true" >> $GITHUB_OUTPUT
+          echo "new-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        fi
+
+  # 构建项目
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should-release == 'true'
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact-name: scrcpy-launcher-windows-x64
+            file-ext: .exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact-name: scrcpy-launcher-linux-x64
+            file-ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact-name: scrcpy-launcher-macos-x64
+            file-ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: 安装 Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: 缓存 Cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: 构建项目
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: 准备发布文件
+      shell: bash
+      run: |
+        mkdir -p release
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp target/${{ matrix.target }}/release/scrcpy-launcher.exe release/${{ matrix.artifact-name }}.exe
+        else
+          cp target/${{ matrix.target }}/release/scrcpy-launcher release/${{ matrix.artifact-name }}
+        fi
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: release/${{ matrix.artifact-name }}${{ matrix.file-ext }}
+
+  # 创建发布
+  release:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: 下载所有构建产物
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: 准备发布文件
+      run: |
+        mkdir -p release
+        find artifacts -type f -exec cp {} release/ \;
+        ls -la release/
+
+    - name: 生成更新日志
+      id: changelog
+      run: |
+        VERSION="${{ needs.check-version.outputs.new-version }}"
+        echo "## 🚀 scrcpy 智能启动器 v$VERSION" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "### ✨ 主要功能" >> CHANGELOG.md
+        echo "- 🔄 自动检测并下载最新版本的 scrcpy" >> CHANGELOG.md
+        echo "- 📱 实时监控 Android 设备连接状态" >> CHANGELOG.md
+        echo "- 🚀 自动启动 scrcpy 进行屏幕镜像" >> CHANGELOG.md
+        echo "- 💻 跨平台支持 (Windows/Linux/macOS)" >> CHANGELOG.md
+        echo "- 🛡️ 无需管理员权限运行" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "### 📦 下载说明" >> CHANGELOG.md
+        echo "- **Windows**: 下载 \`scrcpy-launcher-windows-x64.exe\`" >> CHANGELOG.md
+        echo "- **Linux**: 下载 \`scrcpy-launcher-linux-x64\`" >> CHANGELOG.md
+        echo "- **macOS**: 下载 \`scrcpy-launcher-macos-x64\`" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "### 🔧 使用方法" >> CHANGELOG.md
+        echo "1. 下载对应平台的可执行文件" >> CHANGELOG.md
+        echo "2. 确保 Android 设备已开启 USB 调试" >> CHANGELOG.md
+        echo "3. 连接设备到电脑" >> CHANGELOG.md
+        echo "4. 运行启动器，程序会自动处理其余步骤" >> CHANGELOG.md
+        
+        # 设置输出变量
+        {
+          echo 'CHANGELOG<<EOF'
+          cat CHANGELOG.md
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+
+    - name: 创建 GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.check-version.outputs.new-version }}
+        name: scrcpy 智能启动器 v${{ needs.check-version.outputs.new-version }}
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
+        files: release/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

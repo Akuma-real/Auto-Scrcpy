@@ -1,0 +1,61 @@
+# Rust 编译输出
+target/
+Cargo.lock
+
+# IDE 和编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统生成的文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# 下载的scrcpy文件（可选择性忽略）
+scrcpy/
+*.zip
+*.tar.gz
+
+# 配置文件（如果包含敏感信息）
+config.json
+settings.json
+
+# 测试输出
+test-results/
+coverage/
+
+# 文档生成
+doc/
+docs/target/
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 缓存目录
+.cache/
+cache/
+
+# 构建脚本生成的文件
+build/
+dist/
+out/
