@@ -6,7 +6,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::error::Error;
 use zip::ZipArchive;
-use crate::github_api::{GitHubRelease, GitHubAsset};
 
 /// scrcpy下载器
 pub struct ScrcpyDownloader {
@@ -36,14 +35,13 @@ impl ScrcpyDownloader {
         Ok(())
     }
 
-    /// 检查是否需要更新
-    pub fn should_update(&self, latest_release: &GitHubRelease) -> bool {
+    /// 检查版本是否需要更新
+    pub fn should_update_version(&self, remote_version: &str) -> bool {
         if let Some(local_ver) = self.get_local_version() {
-            let remote_ver = &latest_release.tag_name;
             println!("📦 本地版本: {}", local_ver);
-            println!("🌐 远程版本: {}", remote_ver);
+            println!("🌐 远程版本: {}", remote_version);
             
-            local_ver != *remote_ver
+            local_ver != remote_version
         } else {
             true // 没有本地版本信息，需要下载
         }
@@ -85,41 +83,43 @@ impl ScrcpyDownloader {
         Ok(())
     }
 
-    /// 下载scrcpy
-    pub async fn download_scrcpy(&mut self, asset: &GitHubAsset, version: &str) -> Result<(), Box<dyn Error>> {
-        let total_size = asset.size;
-        println!("📥 正在下载: {} ({:.2} MB)", asset.name, total_size as f64 / 1024.0 / 1024.0);
+    /// 从URL直接下载scrcpy
+    pub async fn download_scrcpy_from_url(&mut self, download_url: &str, version: &str) -> Result<(), Box<dyn Error>> {
+        println!("📥 正在下载scrcpy {}...", version);
 
         // 准备下载目录
         self.prepare_download_directory()?;
 
-        // 下载文件并显示进度
-        let mut response = self.client.get(&asset.browser_download_url).send().await?;
+        // 获取文件名
+        let filename = download_url.split('/').last().unwrap_or("scrcpy.zip");
+        println!("📦 文件名: {}", filename);
+
+        // 下载文件
+        let mut response = self.client.get(download_url).send().await?;
         
-        let zip_path = self.scrcpy_dir.join(&asset.name);
+        let zip_path = self.scrcpy_dir.join(filename);
         let mut file = fs::File::create(&zip_path)?;
         
         let mut downloaded = 0u64;
-        let mut last_progress = 0;
+        let total_size = response.content_length().unwrap_or(0);
         
-        // 显示初始进度
-        self.print_progress(0, 0.0, total_size as f64 / 1024.0 / 1024.0)?;
+        if total_size > 0 {
+            println!("📊 文件大小: {:.2} MB", total_size as f64 / 1024.0 / 1024.0);
+            self.print_progress(0, 0.0, total_size as f64 / 1024.0 / 1024.0)?;
+        }
 
         while let Some(chunk) = response.chunk().await? {
             file.write_all(&chunk)?;
             downloaded += chunk.len() as u64;
             
-            // 计算进度百分比
-            let progress = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
-            
-            // 每增加2%或下载完成时更新进度条
-            if progress != last_progress && (progress % 2 == 0 || downloaded == total_size) {
-                self.print_progress(progress, downloaded as f64 / 1024.0 / 1024.0, total_size as f64 / 1024.0 / 1024.0)?;
-                last_progress = progress;
+            if total_size > 0 {
+                let progress = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
+                if progress % 5 == 0 { // 每5%更新一次
+                    self.print_progress(progress, downloaded as f64 / 1024.0 / 1024.0, total_size as f64 / 1024.0 / 1024.0)?;
+                }
             }
         }
         
-        // 下载完成，换行
         println!();
         println!("✅ 下载完成！");
         println!("📦 正在解压...");
@@ -133,7 +133,7 @@ impl ScrcpyDownloader {
         // 保存版本信息
         self.save_version(version)?;
 
-        println!("✅ scrcpy {} 下载完成！", version);
+        println!("✅ scrcpy {} 安装完成！", version);
         Ok(())
     }
 

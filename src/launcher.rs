@@ -19,7 +19,7 @@ impl ScrcpyLauncher {
     pub async fn new() -> Result<Self, Box<dyn Error>> {
         let scrcpy_dir = PathBuf::from("./scrcpy");
         
-        let github_client = GitHubClient::new();
+        let github_client = GitHubClient::new()?;
         let downloader = ScrcpyDownloader::new(scrcpy_dir.clone());
         let device_monitor = DeviceMonitor::new(&scrcpy_dir);
 
@@ -63,19 +63,15 @@ impl ScrcpyLauncher {
 
     /// 检查是否需要更新
     async fn should_update(&self) -> Result<bool, Box<dyn Error>> {
-        let latest_release = self.github_client.get_latest_scrcpy_release().await?;
-        Ok(self.downloader.should_update(&latest_release))
+        let version_info = self.github_client.get_latest_version().await?;
+        Ok(self.downloader.should_update_version(&version_info.version))
     }
 
     /// 下载最新的scrcpy
     async fn download_latest_scrcpy(&mut self) -> Result<(), Box<dyn Error>> {
-        let release = self.github_client.get_latest_scrcpy_release().await?;
+        let version_info = self.github_client.get_latest_version().await?;
         
-        // 查找适合当前系统的资源
-        let asset = GitHubClient::find_suitable_asset(&release)
-            .ok_or("未找到适合的scrcpy版本")?;
-
-        self.downloader.download_scrcpy(asset, &release.tag_name).await?;
+        self.downloader.download_scrcpy_from_url(&version_info.download_url, &version_info.version).await?;
         Ok(())
     }
 

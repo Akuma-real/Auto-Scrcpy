@@ -1,65 +1,85 @@
-//! GitHub API 模块
-//! 处理与GitHub API的交互，获取scrcpy最新版本信息
-
-use serde::Deserialize;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::fmt;
 
-/// GitHub发布版本信息
 #[derive(Debug, Deserialize)]
-pub struct GitHubRelease {
-    pub tag_name: String,
-    pub assets: Vec<GitHubAsset>,
+pub struct VersionInfo {
+    pub version: String,
+    pub download_url: String,
+    pub updated_at: String,
 }
 
-/// GitHub资源文件信息
-#[derive(Debug, Deserialize)]
-pub struct GitHubAsset {
-    pub name: String,
-    pub browser_download_url: String,
-    pub size: u64,
+#[derive(Debug)]
+pub enum GitHubError {
+    NetworkError(reqwest::Error),
+    ParseError(String),
+    NotFound,
 }
 
-/// GitHub API客户端
+impl fmt::Display for GitHubError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            GitHubError::NetworkError(e) => write!(f, "网络错误: {}", e),
+            GitHubError::ParseError(e) => write!(f, "解析错误: {}", e),
+            GitHubError::NotFound => write!(f, "未找到版本信息"),
+        }
+    }
+}
+
+impl Error for GitHubError {}
+
+impl From<reqwest::Error> for GitHubError {
+    fn from(error: reqwest::Error) -> Self {
+        GitHubError::NetworkError(error)
+    }
+}
+
 pub struct GitHubClient {
-    client: reqwest::Client,
+    client: Client,
 }
 
 impl GitHubClient {
-    /// 创建新的GitHub API客户端
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+    /// 创建新的GitHub客户端
+    pub fn new() -> Result<Self, GitHubError> {
+        let client = Client::builder()
+            .user_agent("scrcpy-launcher/1.0")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        
+        Ok(GitHubClient { client })
     }
 
-    /// 获取scrcpy的最新发布版本
-    pub async fn get_latest_scrcpy_release(&self) -> Result<GitHubRelease, Box<dyn Error>> {
-        let url = "https://api.github.com/repos/Genymobile/scrcpy/releases/latest";
+    /// 从仓库获取最新版本信息
+    pub async fn get_latest_version(&self) -> Result<VersionInfo, GitHubError> {
+        println!("🔍 正在检查最新版本信息...");
+        
+        // 从我们的仓库读取版本信息文件
+        let url = "https://raw.githubusercontent.com/Akuma-real/auto-scrcpy/main/latest_version";
         
         let response = self.client
             .get(url)
-            .header("User-Agent", "scrcpy-launcher")
             .send()
             .await?;
-            
-        let release: GitHubRelease = response.json().await?;
-        Ok(release)
-    }
 
-    /// 检测系统架构
-    pub fn detect_architecture() -> &'static str {
-        if cfg!(target_arch = "x86_64") {
-            "win64"
-        } else {
-            "win32"
+        if !response.status().is_success() {
+            let status = response.status();
+            return Err(GitHubError::ParseError(format!("获取版本信息失败: {}", status)));
         }
+
+        let version_text = response.text().await?;
+        
+        let version_info: VersionInfo = serde_json::from_str(&version_text)
+            .map_err(|e| GitHubError::ParseError(format!("版本信息解析失败: {}", e)))?;
+
+        println!("📦 最新版本: {}", version_info.version);
+        println!("🕐 更新时间: {}", version_info.updated_at);
+
+        Ok(version_info)
     }
 
-    /// 查找适合当前系统的scrcpy资源
-    pub fn find_suitable_asset<'a>(release: &'a GitHubRelease) -> Option<&'a GitHubAsset> {
-        let arch = Self::detect_architecture();
-        
-        release.assets.iter()
-            .find(|asset| asset.name.contains(arch) && asset.name.ends_with(".zip"))
+    /// 获取下载URL
+    pub fn get_download_url(version_info: &VersionInfo) -> &str {
+        &version_info.download_url
     }
 }

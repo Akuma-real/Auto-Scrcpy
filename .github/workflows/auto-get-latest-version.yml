@@ -1,0 +1,65 @@
+name: 自动获取最新版本
+
+on:
+  schedule:
+    # 每天UTC时间0点运行 (北京时间8点)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  get-latest-version:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: 获取scrcpy最新版本
+      id: get_version
+      run: |
+        # 获取最新版本信息
+        LATEST_VERSION=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.tag_name')
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+        
+        echo "最新版本: $LATEST_VERSION"
+        echo "下载链接: $DOWNLOAD_URL"
+        
+        # 写入版本信息文件
+        cat > latest_version << EOF
+        {
+          "version": "$LATEST_VERSION",
+          "download_url": "$DOWNLOAD_URL",
+          "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        }
+        EOF
+        
+        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+    
+    - name: 检查是否有变化
+      id: check_changes
+      run: |
+        if git diff --quiet latest_version; then
+          echo "版本无变化"
+          echo "changed=false" >> $GITHUB_OUTPUT
+        else
+          echo "检测到新版本"
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: 提交版本文件
+      if: steps.check_changes.outputs.changed == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add latest_version
+        git commit -m "🔄 更新scrcpy版本到 ${{ steps.get_version.outputs.version }}"
+        git push
+    
+    - name: 创建发布说明
+      if: steps.check_changes.outputs.changed == 'true'
+      run: |
+        echo "✅ 已更新scrcpy版本信息"
+        echo "📦 最新版本: ${{ steps.get_version.outputs.version }}"
+        echo "🕐 更新时间: $(date)"
