@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::error::Error;
 use std::fmt;
 
@@ -14,7 +14,6 @@ pub struct VersionInfo {
 pub enum GitHubError {
     NetworkError(reqwest::Error),
     ParseError(String),
-    NotFound,
 }
 
 impl fmt::Display for GitHubError {
@@ -22,7 +21,6 @@ impl fmt::Display for GitHubError {
         match self {
             GitHubError::NetworkError(e) => write!(f, "网络错误: {}", e),
             GitHubError::ParseError(e) => write!(f, "解析错误: {}", e),
-            GitHubError::NotFound => write!(f, "未找到版本信息"),
         }
     }
 }
@@ -78,8 +76,4 @@ impl GitHubClient {
         Ok(version_info)
     }
 
-    /// 获取下载URL
-    pub fn get_download_url(version_info: &VersionInfo) -> &str {
-        &version_info.download_url
-    }
 }
