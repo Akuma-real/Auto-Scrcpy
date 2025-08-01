@@ -41,28 +41,11 @@ jobs:
           echo "new-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
         fi
 
-  # 构建项目
+  # 构建Windows版本
   build:
     needs: check-version
     if: needs.check-version.outputs.should-release == 'true'
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact-name: scrcpy-launcher-windows-x64
-            file-ext: .exe
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact-name: scrcpy-launcher-linux-x64
-            file-ext: ""
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact-name: scrcpy-launcher-macos-x64
-            file-ext: ""
-
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -70,7 +53,7 @@ jobs:
     - name: 安装 Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        targets: ${{ matrix.target }}
+        targets: x86_64-pc-windows-msvc
 
     - name: 缓存 Cargo
       uses: actions/cache@v4
@@ -84,23 +67,18 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: 构建项目
-      run: cargo build --release --target ${{ matrix.target }}
+      run: cargo build --release --target x86_64-pc-windows-msvc
 
     - name: 准备发布文件
-      shell: bash
       run: |
-        mkdir -p release
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp target/${{ matrix.target }}/release/scrcpy-launcher.exe release/${{ matrix.artifact-name }}.exe
-        else
-          cp target/${{ matrix.target }}/release/scrcpy-launcher release/${{ matrix.artifact-name }}
-        fi
+        mkdir release
+        copy target\x86_64-pc-windows-msvc\release\scrcpy-launcher.exe release\scrcpy-launcher.exe
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact-name }}
-        path: release/${{ matrix.artifact-name }}${{ matrix.file-ext }}
+        name: scrcpy-launcher-windows
+        path: release/scrcpy-launcher.exe
 
   # 创建发布
   release:
@@ -132,19 +110,18 @@ jobs:
         echo "- 🔄 自动检测并下载最新版本的 scrcpy" >> CHANGELOG.md
         echo "- 📱 实时监控 Android 设备连接状态" >> CHANGELOG.md
         echo "- 🚀 自动启动 scrcpy 进行屏幕镜像" >> CHANGELOG.md
-        echo "- 💻 跨平台支持 (Windows/Linux/macOS)" >> CHANGELOG.md
+        echo "- 💻 专为 Windows 系统优化" >> CHANGELOG.md
         echo "- 🛡️ 无需管理员权限运行" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "### 📦 下载说明" >> CHANGELOG.md
-        echo "- **Windows**: 下载 \`scrcpy-launcher-windows-x64.exe\`" >> CHANGELOG.md
-        echo "- **Linux**: 下载 \`scrcpy-launcher-linux-x64\`" >> CHANGELOG.md
-        echo "- **macOS**: 下载 \`scrcpy-launcher-macos-x64\`" >> CHANGELOG.md
+        echo "- 下载 \`scrcpy-launcher.exe\` 文件即可使用" >> CHANGELOG.md
+        echo "- 支持 Windows 10/11 系统" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "### 🔧 使用方法" >> CHANGELOG.md
-        echo "1. 下载对应平台的可执行文件" >> CHANGELOG.md
+        echo "1. 下载 scrcpy-launcher.exe 文件" >> CHANGELOG.md
         echo "2. 确保 Android 设备已开启 USB 调试" >> CHANGELOG.md
         echo "3. 连接设备到电脑" >> CHANGELOG.md
-        echo "4. 运行启动器，程序会自动处理其余步骤" >> CHANGELOG.md
+        echo "4. 双击运行启动器，程序会自动处理其余步骤" >> CHANGELOG.md
         
         # 设置输出变量
         {
