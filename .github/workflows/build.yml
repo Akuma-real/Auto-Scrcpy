@@ -69,16 +69,64 @@ jobs:
     - name: 构建项目
       run: cargo build --release --target x86_64-pc-windows-msvc
 
+    - name: 下载最新版本的 scrcpy
+      run: |
+        # 获取最新版本信息
+        $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/Genymobile/scrcpy/releases/latest"
+        $version = $latestRelease.tag_name
+        $downloadUrl = ($latestRelease.assets | Where-Object { $_.name -like "*win64.zip" }).browser_download_url
+        
+        Write-Host "下载 scrcpy $version"
+        Write-Host "下载地址: $downloadUrl"
+        
+        # 下载 scrcpy
+        Invoke-WebRequest -Uri $downloadUrl -OutFile "scrcpy.zip"
+        
+        # 解压到 scrcpy 文件夹
+        Expand-Archive -Path "scrcpy.zip" -DestinationPath "." -Force
+        
+        # 查找解压后的文件夹（通常是 scrcpy-win64-vX.X.X）
+        $scrcpyFolder = Get-ChildItem -Directory | Where-Object { $_.Name -like "scrcpy-win64-*" } | Select-Object -First 1
+        if ($scrcpyFolder) {
+          Rename-Item $scrcpyFolder.FullName "scrcpy"
+          Write-Host "scrcpy 文件夹重命名完成"
+        } else {
+          Write-Error "未找到 scrcpy 文件夹"
+          exit 1
+        }
+
     - name: 准备发布文件
       run: |
         mkdir release
+        
+        # 复制启动器程序
         copy target\x86_64-pc-windows-msvc\release\scrcpy-launcher.exe release\scrcpy-launcher.exe
+        
+        # 复制整个 scrcpy 文件夹
+        xcopy scrcpy release\scrcpy\ /E /I /H /Y
+        
+        # 创建使用说明
+        echo "# scrcpy 智能启动器" > release\README.md
+        echo "" >> release\README.md
+        echo "## 使用方法" >> release\README.md
+        echo "1. 确保 Android 设备已开启 USB 调试" >> release\README.md
+        echo "2. 连接设备到电脑" >> release\README.md
+        echo "3. 双击运行 scrcpy-launcher.exe" >> release\README.md
+        echo "4. 程序会自动检测设备并启动 scrcpy" >> release\README.md
+        echo "" >> release\README.md
+        echo "## 包含组件" >> release\README.md
+        echo "- scrcpy-launcher.exe: 智能启动器主程序" >> release\README.md
+        echo "- scrcpy/: scrcpy 完整程序包" >> release\README.md
+        
+        # 显示文件结构
+        Write-Host "发布文件结构:"
+        tree release /F
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: scrcpy-launcher-windows
-        path: release/scrcpy-launcher.exe
+        path: release/
 
   # 创建发布
   release:
@@ -96,8 +144,20 @@ jobs:
 
     - name: 准备发布文件
       run: |
+        mkdir -p release-temp
+        
+        # 复制构建产物到临时目录
+        cp -r artifacts/scrcpy-launcher-windows/* release-temp/
+        
+        # 创建最终的压缩包
+        cd release-temp
+        zip -r ../scrcpy-launcher-windows-v${{ needs.check-version.outputs.new-version }}.zip .
+        cd ..
+        
+        # 移动压缩包到 release 目录
         mkdir -p release
-        find artifacts -type f -exec cp {} release/ \;
+        mv scrcpy-launcher-windows-v${{ needs.check-version.outputs.new-version }}.zip release/
+        
         ls -la release/
 
     - name: 生成更新日志
@@ -107,21 +167,24 @@ jobs:
         echo "## 🚀 scrcpy 智能启动器 v$VERSION" > CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "### ✨ 主要功能" >> CHANGELOG.md
-        echo "- 🔄 自动检测并下载最新版本的 scrcpy" >> CHANGELOG.md
         echo "- 📱 实时监控 Android 设备连接状态" >> CHANGELOG.md
         echo "- 🚀 自动启动 scrcpy 进行屏幕镜像" >> CHANGELOG.md
-        echo "- 💻 专为 Windows 系统优化" >> CHANGELOG.md
+        echo "- 💻 现代化 TUI 界面，美观实用" >> CHANGELOG.md
+        echo "- ⚡ 快速响应，1秒内检测设备变化" >> CHANGELOG.md
+        echo "- 📦 完整打包，包含最新版本 scrcpy" >> CHANGELOG.md
         echo "- 🛡️ 无需管理员权限运行" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "### 📦 下载说明" >> CHANGELOG.md
-        echo "- 下载 \`scrcpy-launcher.exe\` 文件即可使用" >> CHANGELOG.md
+        echo "- 下载完整的发布包，解压后即可使用" >> CHANGELOG.md
+        echo "- 包含 scrcpy-launcher.exe 和完整的 scrcpy 程序" >> CHANGELOG.md
         echo "- 支持 Windows 10/11 系统" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "### 🔧 使用方法" >> CHANGELOG.md
-        echo "1. 下载 scrcpy-launcher.exe 文件" >> CHANGELOG.md
+        echo "1. 下载并解压发布包" >> CHANGELOG.md
         echo "2. 确保 Android 设备已开启 USB 调试" >> CHANGELOG.md
         echo "3. 连接设备到电脑" >> CHANGELOG.md
-        echo "4. 双击运行启动器，程序会自动处理其余步骤" >> CHANGELOG.md
+        echo "4. 双击运行 scrcpy-launcher.exe" >> CHANGELOG.md
+        echo "5. 程序会自动检测设备并启动 scrcpy" >> CHANGELOG.md
         
         # 设置输出变量
         {
