@@ -6,6 +6,7 @@ use std::error::Error;
 use crate::github_api::GitHubClient;
 use crate::downloader::ScrcpyDownloader;
 use crate::device_monitor::DeviceMonitor;
+use crate::ui::TerminalUI;
 
 /// scrcpy智能启动器
 pub struct ScrcpyLauncher {
@@ -31,21 +32,21 @@ impl ScrcpyLauncher {
 
         // 检查scrcpy是否存在，不存在则下载
         if !launcher.is_scrcpy_available() {
-            println!("🔍 未找到scrcpy");
-            if launcher.ask_user_confirmation("是否从GitHub下载最新版本的scrcpy？").await {
-                println!("📥 正在从GitHub下载最新版本...");
+            TerminalUI::print_search("未找到scrcpy");
+            if TerminalUI::ask_confirmation("是否从GitHub下载最新版本的scrcpy？") {
+                TerminalUI::print_download("正在从GitHub下载最新版本...");
                 launcher.download_latest_scrcpy().await?;
             } else {
                 return Err("用户取消下载，程序无法继续运行".into());
             }
         } else {
-            println!("✅ 找到scrcpy，检查是否需要更新...");
+            TerminalUI::print_success("找到scrcpy，检查是否需要更新...");
             if launcher.should_update().await? {
-                if launcher.ask_user_confirmation("发现新版本，是否更新？").await {
-                    println!("🔄 正在更新到最新版本...");
+                if TerminalUI::ask_confirmation("发现新版本，是否更新？") {
+                    TerminalUI::print_download("正在更新到最新版本...");
                     launcher.download_latest_scrcpy().await?;
                 } else {
-                    println!("⏭️ 跳过更新，使用当前版本");
+                    TerminalUI::print_info("跳过更新，使用当前版本");
                 }
             }
         }
@@ -75,22 +76,6 @@ impl ScrcpyLauncher {
         Ok(())
     }
 
-    /// 询问用户确认
-    async fn ask_user_confirmation(&self, message: &str) -> bool {
-        use std::io::{self, Write};
-        
-        print!("❓ {} (y/N): ", message);
-        io::stdout().flush().unwrap();
-        
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {
-                let input = input.trim().to_lowercase();
-                input == "y" || input == "yes" || input == "是" || input == "确定"
-            }
-            Err(_) => false,
-        }
-    }
 
     /// 运行启动器主循环
     pub async fn run(&mut self) {

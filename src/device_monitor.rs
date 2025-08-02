@@ -5,6 +5,7 @@ use std::process::{Command, Child, Stdio};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
+use crate::ui::TerminalUI;
 
 /// 设备监控器
 pub struct DeviceMonitor {
@@ -65,7 +66,7 @@ impl DeviceMonitor {
             return true; // 已经在运行
         }
 
-        println!("🚀 启动 scrcpy...");
+        TerminalUI::print_launch("启动 scrcpy...");
         
         match Command::new(&self.scrcpy_exe)
             .stdout(Stdio::null())
@@ -75,11 +76,11 @@ impl DeviceMonitor {
             Ok(child) => {
                 self.scrcpy_process = Some(child);
                 self.scrcpy_window_closed = false;
-                println!("✅ scrcpy 已启动");
+                TerminalUI::print_success("scrcpy 已启动");
                 true
             }
             Err(e) => {
-                eprintln!("❌ 启动 scrcpy 失败: {}", e);
+                TerminalUI::print_error(&format!("启动 scrcpy 失败: {}", e));
                 false
             }
         }
@@ -93,7 +94,7 @@ impl DeviceMonitor {
                     // 进程已结束
                     self.scrcpy_process = None;
                     if !self.scrcpy_window_closed {
-                        println!("ℹ️  scrcpy 窗口已关闭");
+                        TerminalUI::print_info("scrcpy 窗口已关闭");
                         self.scrcpy_window_closed = true;
                     }
                     false
@@ -106,7 +107,7 @@ impl DeviceMonitor {
                     // 检查失败，假设进程已结束
                     self.scrcpy_process = None;
                     if !self.scrcpy_window_closed {
-                        println!("ℹ️  scrcpy 窗口已关闭");
+                        TerminalUI::print_info("scrcpy 窗口已关闭");
                         self.scrcpy_window_closed = true;
                     }
                     false
@@ -120,20 +121,16 @@ impl DeviceMonitor {
     /// 停止scrcpy
     pub fn stop_scrcpy(&mut self) {
         if let Some(mut process) = self.scrcpy_process.take() {
-            println!("🛑 正在关闭 scrcpy...");
+            TerminalUI::print_stop("正在关闭 scrcpy...");
             let _ = process.kill();
             let _ = process.wait();
-            println!("✅ scrcpy 已关闭");
+            TerminalUI::print_success("scrcpy 已关闭");
         }
     }
 
     /// 主监控循环
     pub async fn run(&mut self) {
-        println!("🔍 scrcpy 智能启动器已启动");
-        println!("📱 正在监控设备连接状态...");
-        println!("💡 提示: 按 Ctrl+C 退出程序");
-        println!("🔒 单实例运行: 重复启动将激活现有窗口");
-        println!("----------------------------------------");
+        TerminalUI::print_monitor_panel();
 
         let mut scrcpy_started = false;
 
@@ -143,9 +140,9 @@ impl DeviceMonitor {
             // 连接状态发生变化时打印信息
             if is_connected != self.device_connected {
                 if is_connected {
-                    println!("📱 检测到设备连接");
+                    TerminalUI::print_device("检测到设备连接");
                 } else {
-                    println!("📱 设备已断开连接");
+                    TerminalUI::print_device("设备已断开连接");
                 }
                 self.device_connected = is_connected;
             }

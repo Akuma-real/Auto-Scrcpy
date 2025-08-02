@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::error::Error;
 use std::fmt;
+use crate::ui::TerminalUI;
 
 #[derive(Debug, Deserialize)]
 pub struct VersionInfo {
@@ -50,7 +51,7 @@ impl GitHubClient {
 
     /// 从仓库获取最新版本信息
     pub async fn get_latest_version(&self) -> Result<VersionInfo, GitHubError> {
-        println!("🔍 正在检查最新版本信息...");
+        TerminalUI::print_search("正在检查最新版本信息...");
         
         // 从我们的仓库读取版本信息文件
         let url = "https://raw.githubusercontent.com/Akuma-real/Auto-Scrcpy/main/latest_version";
@@ -70,8 +71,8 @@ impl GitHubClient {
         let version_info: VersionInfo = serde_json::from_str(&version_text)
             .map_err(|e| GitHubError::ParseError(format!("版本信息解析失败: {}", e)))?;
 
-        println!("📦 最新版本: {}", version_info.version);
-        println!("🕐 更新时间: {}", version_info.updated_at);
+        TerminalUI::print_version(&format!("最新版本: {}", version_info.version));
+        TerminalUI::print_info(&format!("更新时间: {}", version_info.updated_at));
 
         Ok(version_info)
     }
