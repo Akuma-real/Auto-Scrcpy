@@ -68,10 +68,6 @@ impl TerminalUI {
         Self::print_status("ℹ️", message);
     }
 
-    /// 打印进度信息
-    pub fn print_progress(message: &str) {
-        Self::print_status("📊", message);
-    }
 
     /// 打印设备相关信息
     pub fn print_device(message: &str) {
@@ -93,10 +89,6 @@ impl TerminalUI {
         Self::print_status("📦", message);
     }
 
-    /// 打印网络相关信息
-    pub fn print_network(message: &str) {
-        Self::print_status("🌐", message);
-    }
 
     /// 打印启动相关信息
     pub fn print_launch(message: &str) {
@@ -118,10 +110,6 @@ impl TerminalUI {
         Self::print_status("🔍", message);
     }
 
-    /// 打印锁定相关信息
-    pub fn print_lock(message: &str) {
-        Self::print_status("🔒", message);
-    }
 
     /// 获取当前时间戳
     fn get_timestamp() -> String {
