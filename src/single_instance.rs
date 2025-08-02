@@ -14,9 +14,17 @@ use winapi::um::winbase::OpenMutexA;
 #[cfg(target_os = "windows")]
 use winapi::um::winnt::SYNCHRONIZE;
 #[cfg(target_os = "windows")]
-use winapi::um::winuser::{SetForegroundWindow, ShowWindow, IsIconic};
+use winapi::um::winuser::{
+    SetForegroundWindow, ShowWindow, IsIconic, FindWindowA, EnumWindows, 
+    GetWindowTextA, GetWindowThreadProcessId, AttachThreadInput, 
+    BringWindowToTop, SetActiveWindow
+};
 #[cfg(target_os = "windows")]
 use winapi::um::wincon::GetConsoleWindow;
+#[cfg(target_os = "windows")]
+use winapi::um::processthreadsapi::{GetCurrentProcessId, GetCurrentThreadId};
+#[cfg(target_os = "windows")]
+use winapi::shared::windef::HWND;
 #[cfg(target_os = "windows")]
 use std::ffi::CString;
 #[cfg(target_os = "windows")]
@@ -70,15 +78,86 @@ impl SingleInstanceGuard {
     /// 查找并激活现有的程序窗口
     fn find_and_activate_existing_window() {
         unsafe {
+            // 方法1: 尝试激活控制台窗口
             let console_window = GetConsoleWindow();
             if !console_window.is_null() {
-                if IsIconic(console_window) != 0 {
-                    ShowWindow(console_window, 9); // SW_RESTORE = 9
-                }
-                SetForegroundWindow(console_window);
+                Self::activate_window(console_window);
                 return;
             }
+            
+            // 方法2: 通过窗口标题查找
+            let window_title = CString::new("scrcpy 智能启动器").unwrap_or_default();
+            let window_handle = FindWindowA(ptr::null(), window_title.as_ptr());
+            if !window_handle.is_null() {
+                Self::activate_window(window_handle);
+                return;
+            }
+            
+            // 方法3: 枚举所有窗口查找匹配的进程
+            EnumWindows(Some(Self::enum_windows_proc), 0);
         }
+    }
+    
+    /// 激活指定窗口
+    fn activate_window(window_handle: HWND) {
+        unsafe {
+            // 如果窗口被最小化，先还原
+            if IsIconic(window_handle) != 0 {
+                ShowWindow(window_handle, 9); // SW_RESTORE = 9
+            }
+            
+            // 获取窗口线程ID
+            let mut process_id = 0;
+            let window_thread_id = GetWindowThreadProcessId(window_handle, &mut process_id);
+            let current_thread_id = GetCurrentThreadId();
+            
+            // 如果是不同线程，需要附加输入
+            if window_thread_id != current_thread_id {
+                AttachThreadInput(current_thread_id, window_thread_id, 1);
+            }
+            
+            // 激活窗口
+            BringWindowToTop(window_handle);
+            SetActiveWindow(window_handle);
+            SetForegroundWindow(window_handle);
+            
+            // 分离输入
+            if window_thread_id != current_thread_id {
+                AttachThreadInput(current_thread_id, window_thread_id, 0);
+            }
+            
+            // 确保窗口可见
+            ShowWindow(window_handle, 5); // SW_SHOW = 5
+        }
+    }
+    
+    /// 枚举窗口的回调函数
+    unsafe extern "system" fn enum_windows_proc(
+        window_handle: HWND,
+        _lparam: winapi::shared::minwindef::LPARAM,
+    ) -> winapi::shared::minwindef::BOOL {
+        let mut process_id = 0;
+        GetWindowThreadProcessId(window_handle, &mut process_id);
+        
+        // 检查是否是当前进程的窗口
+        if process_id == GetCurrentProcessId() {
+            // 获取窗口标题
+            let mut title_buffer = [0i8; 256];
+            let title_len = GetWindowTextA(window_handle, title_buffer.as_mut_ptr(), 256);
+            
+            if title_len > 0 {
+                let title = std::ffi::CStr::from_ptr(title_buffer.as_ptr())
+                    .to_string_lossy();
+                
+                // 如果窗口标题包含程序相关关键词，激活它
+                if title.contains("scrcpy") || title.contains("启动器") {
+                    Self::activate_window(window_handle);
+                    return 0; // 停止枚举
+                }
+            }
+        }
+        
+        1 // 继续枚举
     }
 }
 
