@@ -74,26 +74,83 @@ jobs:
         # 获取最新版本信息
         $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/Genymobile/scrcpy/releases/latest"
         $version = $latestRelease.tag_name
-        $downloadUrl = ($latestRelease.assets | Where-Object { $_.name -like "*win64.zip" }).browser_download_url
+        
+        Write-Host "获取到 scrcpy 版本: $version"
+        Write-Host "可用的资源文件:"
+        $latestRelease.assets | ForEach-Object { Write-Host "  - $($_.name)" }
+        
+        # 查找 Windows 版本的下载链接（可能的文件名格式）
+        $windowsAsset = $latestRelease.assets | Where-Object { 
+          $_.name -like "*win64*" -or 
+          $_.name -like "*windows*" -or 
+          $_.name -like "*win*" 
+        } | Select-Object -First 1
+        
+        if (-not $windowsAsset) {
+          Write-Error "未找到 Windows 版本的 scrcpy"
+          Write-Host "尝试查找所有 .zip 文件:"
+          $latestRelease.assets | Where-Object { $_.name -like "*.zip" } | ForEach-Object { Write-Host "  - $($_.name)" }
+          
+          # 如果没找到特定的 Windows 版本，尝试使用第一个 zip 文件
+          $windowsAsset = $latestRelease.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
+        }
+        
+        if (-not $windowsAsset) {
+          Write-Error "未找到任何可用的 scrcpy 下载文件"
+          exit 1
+        }
+        
+        $downloadUrl = $windowsAsset.browser_download_url
+        $fileName = $windowsAsset.name
         
         Write-Host "下载 scrcpy $version"
+        Write-Host "文件名: $fileName"
         Write-Host "下载地址: $downloadUrl"
         
         # 下载 scrcpy
         Invoke-WebRequest -Uri $downloadUrl -OutFile "scrcpy.zip"
         
-        # 解压到 scrcpy 文件夹
-        Expand-Archive -Path "scrcpy.zip" -DestinationPath "." -Force
+        # 解压到临时文件夹
+        Expand-Archive -Path "scrcpy.zip" -DestinationPath "temp_extract" -Force
         
-        # 查找解压后的文件夹（通常是 scrcpy-win64-vX.X.X）
-        $scrcpyFolder = Get-ChildItem -Directory | Where-Object { $_.Name -like "scrcpy-win64-*" } | Select-Object -First 1
-        if ($scrcpyFolder) {
-          Rename-Item $scrcpyFolder.FullName "scrcpy"
-          Write-Host "scrcpy 文件夹重命名完成"
-        } else {
-          Write-Error "未找到 scrcpy 文件夹"
-          exit 1
+        # 查找解压后的文件夹
+        $extractedFolders = Get-ChildItem -Path "temp_extract" -Directory
+        Write-Host "解压后的文件夹:"
+        $extractedFolders | ForEach-Object { Write-Host "  - $($_.Name)" }
+        
+        # 找到包含 scrcpy.exe 的文件夹
+        $scrcpyFolder = $null
+        foreach ($folder in $extractedFolders) {
+          $scrcpyExe = Join-Path $folder.FullName "scrcpy.exe"
+          if (Test-Path $scrcpyExe) {
+            $scrcpyFolder = $folder
+            break
+          }
         }
+        
+        if (-not $scrcpyFolder) {
+          # 如果没有子文件夹，检查是否直接解压到了 temp_extract
+          $scrcpyExe = Join-Path "temp_extract" "scrcpy.exe"
+          if (Test-Path $scrcpyExe) {
+            # 直接使用 temp_extract 作为 scrcpy 文件夹
+            Rename-Item "temp_extract" "scrcpy"
+            Write-Host "scrcpy 文件直接解压，重命名完成"
+          } else {
+            Write-Error "未找到 scrcpy.exe 文件"
+            Write-Host "temp_extract 目录内容:"
+            Get-ChildItem -Path "temp_extract" -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
+            exit 1
+          }
+        } else {
+          # 移动找到的文件夹到根目录并重命名
+          Move-Item $scrcpyFolder.FullName "scrcpy"
+          Remove-Item "temp_extract" -Recurse -Force
+          Write-Host "scrcpy 文件夹重命名完成: $($scrcpyFolder.Name) -> scrcpy"
+        }
+        
+        # 验证 scrcpy 文件夹内容
+        Write-Host "scrcpy 文件夹内容:"
+        Get-ChildItem -Path "scrcpy" | ForEach-Object { Write-Host "  - $($_.Name)" }
 
     - name: 准备发布文件
       run: |
