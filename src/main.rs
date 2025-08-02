@@ -19,7 +19,7 @@ async fn main() {
 
     // 在任何异步操作之前进行单实例检查
     #[cfg(target_os = "windows")]
-    let _guard = match SingleInstanceGuard::new() {
+    let _guard = match SingleInstanceGuard::new("scrcpy-launcher") {
         Ok(guard) => guard,
         Err(e) => {
             TerminalUI::print_error_panel("单实例检查失败", &e.to_string());
