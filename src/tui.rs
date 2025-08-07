@@ -136,7 +136,6 @@ impl TuiApp {
         let terminal = Terminal::new(backend)?;
 
         let mut state = AppState::default();
-        state.add_log(LogLevel::Info, "SCRCPY 智能启动器已启动".to_string());
         state.set_status("正在初始化...".to_string());
 
         Ok(Self {
@@ -147,7 +146,7 @@ impl TuiApp {
 
     /// 使用共享状态运行 TUI 应用程序
     pub async fn run_with_shared_state(&mut self, shared_state: Arc<Mutex<AppState>>) -> Result<(), Box<dyn std::error::Error>> {
-        let tick_rate = Duration::from_millis(250);
+        let tick_rate = Duration::from_millis(100); // 提高刷新频率以获得更快响应
         let mut last_tick = Instant::now();
 
         loop {

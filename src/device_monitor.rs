@@ -21,15 +21,16 @@ impl DeviceMonitor {
         }
     }
 
-    /// 检查scrcpy是否可用
+    /// 检查scrcpy是否可用（实时检测）
     pub fn is_scrcpy_available(&self) -> bool {
         self.scrcpy_exe.exists() && self.adb_exe.exists()
     }
 
-    /// 检查设备连接状态
+    /// 检查设备连接状态（实时检测，性能优化版本）
     pub async fn check_devices(&self) -> Result<Vec<crate::tui::DeviceInfo>, String> {
         use tokio::process::Command;
         
+        // 使用更短的超时时间加快adb响应
         let output = Command::new(&self.adb_exe)
             .arg("devices")
             .output()
@@ -40,27 +41,37 @@ impl DeviceMonitor {
             return Err("adb devices 命令执行失败".to_string());
         }
 
+        // 预分配容量以减少重新分配
+        let mut devices = Vec::with_capacity(4); // 大多数情况下不会超过4个设备
         let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut devices = Vec::new();
-
+        
+        // 更高效的字符串处理，避免collect()
         for line in output_str.lines().skip(1) { // 跳过第一行 "List of devices attached"
             let line = line.trim();
             if line.is_empty() {
                 continue;
             }
 
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let device_id = parts[0].to_string();
-                let status = parts[1].to_string();
-                
-                // 只添加已连接的设备
-                if status == "device" {
+            // 直接使用split_once避免创建Vec
+            if let Some((device_id, rest)) = line.split_once('\t') {
+                if rest.trim().starts_with("device") {
                     devices.push(crate::tui::DeviceInfo {
-                        id: device_id.clone(),
-                        name: format!("Android设备 {}", &device_id[..std::cmp::min(8, device_id.len())]),
+                        id: device_id.to_string(),
+                        name: "Android设备".to_string(),
                         status: "已连接".to_string(),
                     });
+                }
+            } else {
+                // 备用解析方式（空格分隔）
+                let mut parts = line.split_whitespace();
+                if let (Some(device_id), Some(status)) = (parts.next(), parts.next()) {
+                    if status == "device" {
+                        devices.push(crate::tui::DeviceInfo {
+                            id: device_id.to_string(),
+                            name: "Android设备".to_string(),
+                            status: "已连接".to_string(),
+                        });
+                    }
                 }
             }
         }
@@ -91,6 +102,30 @@ impl DeviceMonitor {
 
         self.scrcpy_process = Some(child);
         Ok(())
+    }
+
+    /// 检查scrcpy进程是否还在运行
+    pub fn is_scrcpy_running(&mut self) -> bool {
+        if let Some(ref mut process) = self.scrcpy_process {
+            match process.try_wait() {
+                Ok(Some(_)) => {
+                    // 进程已结束
+                    self.scrcpy_process = None;
+                    false
+                }
+                Ok(None) => {
+                    // 进程仍在运行
+                    true
+                }
+                Err(_) => {
+                    // 出错，假设进程已结束
+                    self.scrcpy_process = None;
+                    false
+                }
+            }
+        } else {
+            false
+        }
     }
 
     /// 停止scrcpy

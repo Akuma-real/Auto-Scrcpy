@@ -99,7 +99,7 @@ pub enum TuiMessage {
     Quit,
 }
 
-/// 运行设备监控逻辑
+/// 运行设备监控逻辑（性能优化版本）
 async fn run_device_monitor(tx: mpsc::Sender<TuiMessage>) {
     let _ = tx.send(TuiMessage::Status("监控设备连接...".to_string())).await;
     let _ = tx.send(TuiMessage::Log(LogLevel::Info, "开始监控Android设备连接".to_string())).await;
@@ -110,39 +110,77 @@ async fn run_device_monitor(tx: mpsc::Sender<TuiMessage>) {
     let mut scrcpy_started = false;
     let mut last_device_id: Option<String> = None;
     let mut last_status_update = std::time::Instant::now();
+    let mut last_device_count = 0;
+    let mut consecutive_checks = 0;
+    
+    // 预分配字符串以减少内存分配
+    let status_waiting = "等待设备连接中...".to_string();
 
     loop {
-        // 检查设备连接状态
-        if let Ok(devices) = check_connected_devices().await {
-            let _ = tx.send(TuiMessage::UpdateDevices(devices.clone())).await;
+        consecutive_checks += 1;
+        
+        // 并行执行设备检查和状态更新
+        let device_check_result = tokio::select! {
+            result = check_connected_devices_with_monitor(&device_monitor) => result,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                // 50ms超时，如果adb命令太慢就跳过这次检查
+                continue;
+            }
+        };
+        
+        if let Ok(devices) = device_check_result {
+            // 只在设备列表实际变化时更新UI
+            let device_count = devices.len();
+            let device_count_changed = device_count != last_device_count;
+            
+            if device_count_changed || consecutive_checks % 10 == 0 {
+                // 每10次检查或设备变化时更新UI
+                let _ = tx.send(TuiMessage::UpdateDevices(devices.clone())).await;
+            }
+            
+            last_device_count = device_count;
             
             if !devices.is_empty() {
-                let current_device_id = devices[0].id.clone();
+                let current_device_id = &devices[0].id; // 使用引用避免clone
                 
-                // 只在设备变化或scrcpy未启动时才启动
-                if !scrcpy_started || last_device_id.as_ref() != Some(&current_device_id) {
-                    for device in &devices {
+                // 检查scrcpy进程状态（如果认为已启动）
+                if scrcpy_started {
+                    if !device_monitor.is_scrcpy_running() {
                         let _ = tx.send(TuiMessage::Log(
-                            LogLevel::Device, 
-                            format!("发现设备: {} ({})", device.name, device.id)
+                            LogLevel::Warning,
+                            "检测到scrcpy进程已结束，正在自动重启...".to_string()
                         )).await;
+                        scrcpy_started = false; // 重置状态以触发重启
+                    }
+                }
+                
+                // 在设备变化、scrcpy未启动或设备数量变化时启动
+                if !scrcpy_started || last_device_id.as_ref() != Some(current_device_id) || device_count_changed {
+                    // 只在设备真正变化时显示发现日志
+                    if last_device_id.as_ref() != Some(current_device_id) || device_count_changed {
+                        for device in &devices {
+                            let _ = tx.send(TuiMessage::Log(
+                                LogLevel::Device,
+                                format!("发现设备: {} ({})", device.name, device.id)
+                            )).await;
+                        }
                     }
                     
                     let _ = tx.send(TuiMessage::Log(LogLevel::Launch, "正在启动scrcpy...".to_string())).await;
                     
                     if device_monitor.is_scrcpy_available() {
-                        match device_monitor.start_scrcpy(Some(&current_device_id)) {
+                        match device_monitor.start_scrcpy(Some(current_device_id)) {
                             Ok(_) => {
                                 let _ = tx.send(TuiMessage::Log(
-                                    LogLevel::Success, 
+                                    LogLevel::Success,
                                     format!("成功启动scrcpy连接设备: {}", devices[0].name)
                                 )).await;
                                 scrcpy_started = true;
-                                last_device_id = Some(current_device_id);
+                                last_device_id = Some(current_device_id.clone());
                             }
                             Err(e) => {
                                 let _ = tx.send(TuiMessage::Log(
-                                    LogLevel::Error, 
+                                    LogLevel::Error,
                                     format!("启动scrcpy失败: {}", e)
                                 )).await;
                                 scrcpy_started = false;
@@ -150,7 +188,7 @@ async fn run_device_monitor(tx: mpsc::Sender<TuiMessage>) {
                         }
                     } else {
                         let _ = tx.send(TuiMessage::Log(
-                            LogLevel::Error, 
+                            LogLevel::Error,
                             "scrcpy或adb未找到，请确保scrcpy已正确安装".to_string()
                         )).await;
                     }
@@ -160,7 +198,7 @@ async fn run_device_monitor(tx: mpsc::Sender<TuiMessage>) {
                 if scrcpy_started {
                     if let Some(device_id) = &last_device_id {
                         let _ = tx.send(TuiMessage::Log(
-                            LogLevel::Warning, 
+                            LogLevel::Warning,
                             format!("设备已断开连接: {}", device_id)
                         )).await;
                     }
@@ -169,27 +207,32 @@ async fn run_device_monitor(tx: mpsc::Sender<TuiMessage>) {
                     last_device_id = None;
                 }
                 
-                // 每30秒提示一次等待设备连接
-                if last_status_update.elapsed().as_secs() >= 30 {
-                    let _ = tx.send(TuiMessage::Log(LogLevel::Info, "等待设备连接中...".to_string())).await;
+                // 减少状态提示频率，从30秒增加到60秒
+                if last_status_update.elapsed().as_secs() >= 60 {
+                    let _ = tx.send(TuiMessage::Log(LogLevel::Info, status_waiting.clone())).await;
                     last_status_update = std::time::Instant::now();
                 }
             }
         }
         
-        // 每1秒检查一次设备
-        sleep(Duration::from_secs(1)).await;
+        // 动态调整检查间隔：更激进的优化策略
+        let check_interval = if consecutive_checks < 50 {
+            // 前12.5秒每100ms检查一次（超快响应初始连接）
+            Duration::from_millis(100)
+        } else if scrcpy_started && last_device_count > 0 {
+            // 设备已连接且scrcpy运行时，适度降低频率
+            Duration::from_millis(250)
+        } else {
+            // 等待设备连接时保持高频率
+            Duration::from_millis(150)
+        };
+        
+        sleep(check_interval).await;
     }
 }
 
-/// 检查连接的设备
-async fn check_connected_devices() -> Result<Vec<DeviceInfo>, String> {
-    // 获取scrcpy目录
-    let scrcpy_dir = get_scrcpy_directory();
-    
-    // 创建设备监控器
-    let device_monitor = DeviceMonitor::new(&scrcpy_dir);
-    
+/// 检查连接的设备（使用传入的设备监控器实例）
+async fn check_connected_devices_with_monitor(device_monitor: &DeviceMonitor) -> Result<Vec<DeviceInfo>, String> {
     // 检查adb是否可用
     if !device_monitor.adb_exe.exists() {
         return Err("ADB未找到，请确保scrcpy已正确安装".to_string());
@@ -198,6 +241,7 @@ async fn check_connected_devices() -> Result<Vec<DeviceInfo>, String> {
     // 使用设备监控器检查设备
     device_monitor.check_devices().await
 }
+
 
 /// 获取scrcpy目录
 fn get_scrcpy_directory() -> PathBuf {
