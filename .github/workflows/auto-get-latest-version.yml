@@ -6,6 +6,9 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch: # 允许手动触发
 
+permissions:
+  contents: write  # 允许推送到仓库
+
 jobs:
   get-latest-version:
     runs-on: ubuntu-latest
@@ -19,33 +22,62 @@ jobs:
     - name: 获取scrcpy最新版本
       id: get_version
       run: |
-        # 获取最新版本信息
-        LATEST_VERSION=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.tag_name')
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+        # 获取最新版本信息，增加错误处理
+        LATEST_RELEASE=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest)
+        
+        if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
+          echo "❌ 无法获取最新版本信息"
+          exit 1
+        fi
+        
+        LATEST_VERSION=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
+        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+        
+        if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "null" ]; then
+          echo "❌ 无法解析版本号"
+          exit 1
+        fi
+        
+        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+          echo "❌ 无法找到Windows 64位下载链接"
+          exit 1
+        fi
         
         echo "最新版本: $LATEST_VERSION"
         echo "下载链接: $DOWNLOAD_URL"
         
-        # 写入版本信息文件
-        cat > latest_version << EOF
+        # 读取当前版本（如果文件存在）
+        CURRENT_VERSION=""
+        if [ -f "latest_version" ]; then
+          CURRENT_VERSION=$(jq -r '.version' latest_version 2>/dev/null || echo "")
+        fi
+        
+        echo "当前版本: $CURRENT_VERSION"
+        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+    
+    - name: 检查版本是否变化
+      id: check_changes
+      run: |
+        LATEST_VERSION="${{ steps.get_version.outputs.version }}"
+        CURRENT_VERSION="${{ steps.get_version.outputs.current_version }}"
+        
+        if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+          echo "🔄 检测到新版本: $CURRENT_VERSION -> $LATEST_VERSION"
+          echo "changed=true" >> $GITHUB_OUTPUT
+          
+          # 只有版本变化时才更新文件
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+          cat > latest_version << EOF
         {
           "version": "$LATEST_VERSION",
           "download_url": "$DOWNLOAD_URL",
           "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         }
         EOF
-        
-        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-    
-    - name: 检查是否有变化
-      id: check_changes
-      run: |
-        if git diff --quiet latest_version; then
-          echo "版本无变化"
-          echo "changed=false" >> $GITHUB_OUTPUT
         else
-          echo "检测到新版本"
-          echo "changed=true" >> $GITHUB_OUTPUT
+          echo "📋 版本无变化，当前已是最新版本: $LATEST_VERSION"
+          echo "changed=false" >> $GITHUB_OUTPUT
         fi
     
     - name: 提交版本文件
