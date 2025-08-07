@@ -4,6 +4,7 @@
 mod single_instance;
 mod device_monitor;
 mod tui;
+mod updater;
 
 use single_instance::SingleInstanceGuard;
 use tui::{TuiApp, LogLevel, DeviceInfo};
@@ -45,8 +46,14 @@ async fn main() {
     let (tx, mut rx) = mpsc::channel(100);
 
     // 启动业务逻辑任务
+    let tx_clone = tx.clone();
     let business_handle = tokio::spawn(async move {
         run_device_monitor(tx).await;
+    });
+
+    // 启动更新检查任务
+    let update_handle = tokio::spawn(async move {
+        run_update_checker(tx_clone).await;
     });
 
     // 启动TUI更新任务
@@ -64,6 +71,12 @@ async fn main() {
                 }
                 TuiMessage::UpdateDevices(devices) => {
                     state.update_devices(devices);
+                }
+                TuiMessage::UpdateDownloadProgress(progress) => {
+                    state.download_progress = Some(progress);
+                }
+                TuiMessage::UpdateVersionInfo(version_info) => {
+                    state.version_info = Some(version_info);
                 }
                 TuiMessage::Quit => {
                     state.should_quit = true;
@@ -83,6 +96,7 @@ async fn main() {
 
     // 清理
     business_handle.abort();
+    update_handle.abort();
     tui_handle.abort();
 
     if let Err(e) = result {
@@ -96,6 +110,8 @@ pub enum TuiMessage {
     Log(LogLevel, String),
     Status(String),
     UpdateDevices(Vec<DeviceInfo>),
+    UpdateDownloadProgress(tui::DownloadProgress),
+    UpdateVersionInfo(tui::VersionInfo),
     Quit,
 }
 
@@ -270,4 +286,36 @@ fn get_scrcpy_directory() -> PathBuf {
     
     // 默认返回当前目录下的scrcpy文件夹
     current_dir_scrcpy
+}
+
+/// 运行更新检查器
+async fn run_update_checker(tx: mpsc::Sender<TuiMessage>) {
+    use updater::{Updater, UpdaterConfig};
+    
+    // 延迟启动更新检查，给主程序一些启动时间
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    
+    let config = UpdaterConfig::default();
+    let updater = Updater::new(config.clone());
+    
+    // 首次检查更新
+    if let Err(e) = updater.auto_update_check(tx.clone()).await {
+        let _ = tx.send(TuiMessage::Log(
+            LogLevel::Warning,
+            format!("更新检查出错: {}", e)
+        )).await;
+    }
+    
+    // 定期检查更新，使用配置中的间隔时间
+    let mut interval = tokio::time::interval(Duration::from_secs(3600 * config.check_interval_hours));
+    loop {
+        interval.tick().await;
+        
+        if let Err(e) = updater.auto_update_check(tx.clone()).await {
+            let _ = tx.send(TuiMessage::Log(
+                LogLevel::Warning,
+                format!("定期更新检查出错: {}", e)
+            )).await;
+        }
+    }
 }

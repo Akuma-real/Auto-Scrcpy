@@ -19,66 +19,117 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: 获取scrcpy最新版本
-      id: get_version
+    - name: 获取本程序和scrcpy最新版本
+      id: get_versions
       run: |
-        # 获取最新版本信息，增加错误处理
-        LATEST_RELEASE=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest)
+        # 获取本程序（scrcpy-launcher）最新版本信息
+        echo "🔍 检查本程序最新版本..."
+        LAUNCHER_RELEASE=$(curl -s https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest)
         
-        if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
-          echo "❌ 无法获取最新版本信息"
+        if [ "$LAUNCHER_RELEASE" != "null" ] && [ -n "$LAUNCHER_RELEASE" ]; then
+          LAUNCHER_VERSION=$(echo "$LAUNCHER_RELEASE" | jq -r '.tag_name')
+          echo "本程序最新版本: $LAUNCHER_VERSION"
+        else
+          LAUNCHER_VERSION="v0.1.5"  # 默认版本
+          echo "未找到本程序发布版本，使用默认版本: $LAUNCHER_VERSION"
+        fi
+        
+        # 获取scrcpy最新版本信息
+        echo "🔍 检查scrcpy最新版本..."
+        SCRCPY_RELEASE=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest)
+        
+        if [ -z "$SCRCPY_RELEASE" ] || [ "$SCRCPY_RELEASE" = "null" ]; then
+          echo "❌ 无法获取scrcpy最新版本信息"
           exit 1
         fi
         
-        LATEST_VERSION=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
-        DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+        SCRCPY_VERSION=$(echo "$SCRCPY_RELEASE" | jq -r '.tag_name')
+        SCRCPY_DOWNLOAD_URL=$(echo "$SCRCPY_RELEASE" | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
         
-        if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "null" ]; then
-          echo "❌ 无法解析版本号"
+        if [ -z "$SCRCPY_VERSION" ] || [ "$SCRCPY_VERSION" = "null" ]; then
+          echo "❌ 无法解析scrcpy版本号"
           exit 1
         fi
         
-        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-          echo "❌ 无法找到Windows 64位下载链接"
+        if [ -z "$SCRCPY_DOWNLOAD_URL" ] || [ "$SCRCPY_DOWNLOAD_URL" = "null" ]; then
+          echo "❌ 无法找到scrcpy Windows 64位下载链接"
           exit 1
         fi
         
-        echo "最新版本: $LATEST_VERSION"
-        echo "下载链接: $DOWNLOAD_URL"
+        echo "scrcpy最新版本: $SCRCPY_VERSION"
+        echo "scrcpy下载链接: $SCRCPY_DOWNLOAD_URL"
         
-        # 读取当前版本（如果文件存在）
-        CURRENT_VERSION=""
+        # 读取当前版本信息（如果文件存在）
+        CURRENT_LAUNCHER_VERSION=""
+        CURRENT_SCRCPY_VERSION=""
         if [ -f "latest_version" ]; then
-          CURRENT_VERSION=$(jq -r '.version' latest_version 2>/dev/null || echo "")
+          CURRENT_LAUNCHER_VERSION=$(jq -r '.launcher_version // ""' latest_version 2>/dev/null || echo "")
+          CURRENT_SCRCPY_VERSION=$(jq -r '.scrcpy_version // .version // ""' latest_version 2>/dev/null || echo "")
         fi
         
-        echo "当前版本: $CURRENT_VERSION"
-        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        echo "当前本程序版本: $CURRENT_LAUNCHER_VERSION"
+        echo "当前scrcpy版本: $CURRENT_SCRCPY_VERSION"
+        
+        # 输出到GitHub Actions
+        echo "launcher_version=$LAUNCHER_VERSION" >> $GITHUB_OUTPUT
+        echo "scrcpy_version=$SCRCPY_VERSION" >> $GITHUB_OUTPUT
+        echo "scrcpy_download_url=$SCRCPY_DOWNLOAD_URL" >> $GITHUB_OUTPUT
+        echo "current_launcher_version=$CURRENT_LAUNCHER_VERSION" >> $GITHUB_OUTPUT
+        echo "current_scrcpy_version=$CURRENT_SCRCPY_VERSION" >> $GITHUB_OUTPUT
     
     - name: 检查版本是否变化
       id: check_changes
       run: |
-        LATEST_VERSION="${{ steps.get_version.outputs.version }}"
-        CURRENT_VERSION="${{ steps.get_version.outputs.current_version }}"
+        LAUNCHER_VERSION="${{ steps.get_versions.outputs.launcher_version }}"
+        SCRCPY_VERSION="${{ steps.get_versions.outputs.scrcpy_version }}"
+        SCRCPY_DOWNLOAD_URL="${{ steps.get_versions.outputs.scrcpy_download_url }}"
         
-        if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
-          echo "🔄 检测到新版本: $CURRENT_VERSION -> $LATEST_VERSION"
+        CURRENT_LAUNCHER_VERSION="${{ steps.get_versions.outputs.current_launcher_version }}"
+        CURRENT_SCRCPY_VERSION="${{ steps.get_versions.outputs.current_scrcpy_version }}"
+        
+        LAUNCHER_CHANGED=false
+        SCRCPY_CHANGED=false
+        
+        # 检查本程序版本是否变化
+        if [ "$LAUNCHER_VERSION" != "$CURRENT_LAUNCHER_VERSION" ]; then
+          echo "🔄 检测到本程序新版本: $CURRENT_LAUNCHER_VERSION -> $LAUNCHER_VERSION"
+          LAUNCHER_CHANGED=true
+        else
+          echo "📋 本程序版本无变化: $LAUNCHER_VERSION"
+        fi
+        
+        # 检查scrcpy版本是否变化
+        if [ "$SCRCPY_VERSION" != "$CURRENT_SCRCPY_VERSION" ]; then
+          echo "🔄 检测到scrcpy新版本: $CURRENT_SCRCPY_VERSION -> $SCRCPY_VERSION"
+          SCRCPY_CHANGED=true
+        else
+          echo "📋 scrcpy版本无变化: $SCRCPY_VERSION"
+        fi
+        
+        # 如果任一版本发生变化，更新文件
+        if [ "$LAUNCHER_CHANGED" = true ] || [ "$SCRCPY_CHANGED" = true ]; then
           echo "changed=true" >> $GITHUB_OUTPUT
           
-          # 只有版本变化时才更新文件
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Genymobile/scrcpy/releases/latest | jq -r '.assets[] | select(.name | contains("win64")) | .browser_download_url')
+          # 创建新的版本文件，包含两个版本信息
           cat > latest_version << EOF
         {
-          "version": "$LATEST_VERSION",
-          "download_url": "$DOWNLOAD_URL",
-          "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          "launcher_version": "$LAUNCHER_VERSION",
+          "scrcpy_version": "$SCRCPY_VERSION",
+          "scrcpy_download_url": "$SCRCPY_DOWNLOAD_URL",
+          "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+          "changelog": {
+            "launcher_changed": $LAUNCHER_CHANGED,
+            "scrcpy_changed": $SCRCPY_CHANGED
+          }
         }
         EOF
         else
-          echo "📋 版本无变化，当前已是最新版本: $LATEST_VERSION"
+          echo "📋 所有版本均无变化"
           echo "changed=false" >> $GITHUB_OUTPUT
         fi
+        
+        echo "launcher_changed=$LAUNCHER_CHANGED" >> $GITHUB_OUTPUT
+        echo "scrcpy_changed=$SCRCPY_CHANGED" >> $GITHUB_OUTPUT
     
     - name: 提交版本文件
       if: steps.check_changes.outputs.changed == 'true'
@@ -86,12 +137,27 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add latest_version
-        git commit -m "🔄 更新scrcpy版本到 ${{ steps.get_version.outputs.version }}"
+        
+        # 创建提交消息
+        COMMIT_MSG="🔄 版本更新"
+        if [ "${{ steps.check_changes.outputs.launcher_changed }}" = "true" ]; then
+          COMMIT_MSG="$COMMIT_MSG - 本程序: ${{ steps.get_versions.outputs.launcher_version }}"
+        fi
+        if [ "${{ steps.check_changes.outputs.scrcpy_changed }}" = "true" ]; then
+          COMMIT_MSG="$COMMIT_MSG - scrcpy: ${{ steps.get_versions.outputs.scrcpy_version }}"
+        fi
+        
+        git commit -m "$COMMIT_MSG"
         git push
     
     - name: 创建发布说明
       if: steps.check_changes.outputs.changed == 'true'
       run: |
-        echo "✅ 已更新scrcpy版本信息"
-        echo "📦 最新版本: ${{ steps.get_version.outputs.version }}"
+        echo "✅ 版本信息已更新"
+        if [ "${{ steps.check_changes.outputs.launcher_changed }}" = "true" ]; then
+          echo "📦 本程序最新版本: ${{ steps.get_versions.outputs.launcher_version }}"
+        fi
+        if [ "${{ steps.check_changes.outputs.scrcpy_changed }}" = "true" ]; then
+          echo "📦 scrcpy最新版本: ${{ steps.get_versions.outputs.scrcpy_version }}"
+        fi
         echo "🕐 更新时间: $(date)"
