@@ -1,10 +1,10 @@
 {
   "launcher_version": "v0.1.5",
-  "scrcpy_version": "v3.3.1",
-  "scrcpy_download_url": "https://github.com/Genymobile/scrcpy/releases/download/v3.3.1/scrcpy-win64-v3.3.1.zip",
-  "updated_at": "2025-08-07T05:03:00Z",
+  "scrcpy_version": "v3.3.2",
+  "scrcpy_download_url": "https://github.com/Genymobile/scrcpy/releases/download/v3.3.2/scrcpy-win64-v3.3.2.zip",
+  "updated_at": "2025-09-07T01:10:01Z",
   "changelog": {
     "launcher_changed": false,
-    "scrcpy_changed": false
+    "scrcpy_changed": true
   }
 }
