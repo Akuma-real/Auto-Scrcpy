@@ -308,38 +308,6 @@ fn draw_device_list(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_widget(device_list, area);
 }
 
-/// 绘制下载进度
-fn draw_download_progress(f: &mut Frame, area: Rect, state: &AppState) {
-    if let Some(ref progress) = state.download_progress {
-        let progress_ratio = progress.progress / 100.0;
-        let progress_bar = Gauge::default()
-            .block(Block::default()
-                .title("📥 下载进度")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)))
-            .gauge_style(Style::default().fg(Color::Green))
-            .ratio(progress_ratio)
-            .label(format!(
-                "{:.1}% ({:.2} MB / {:.2} MB) - {:.2} MB/s",
-                progress.progress,
-                progress.downloaded_mb,
-                progress.total_mb,
-                progress.speed_mbps
-            ));
-        f.render_widget(progress_bar, area);
-
-        // 文件名信息
-        let filename_area = Rect {
-            x: area.x + 1,
-            y: area.y + area.height - 2,
-            width: area.width - 2,
-            height: 1,
-        };
-        let filename_text = Paragraph::new(format!("文件: {}", progress.filename))
-            .style(Style::default().fg(Color::Gray));
-        f.render_widget(filename_text, filename_area);
-    }
-}
 
 /// 绘制日志面板
 fn draw_logs(f: &mut Frame, area: Rect, state: &AppState) {
@@ -354,7 +322,6 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &AppState) {
                 LogLevel::Warning => ("⚠️", Color::Yellow),
                 LogLevel::Error => ("❌", Color::Red),
                 LogLevel::Device => ("📱", Color::Magenta),
-                LogLevel::Download => ("📥", Color::Blue),
                 LogLevel::Launch => ("🚀", Color::Cyan),
             };
             
@@ -371,54 +338,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_widget(log_list, area);
 }
 
-/// 绘制版本对比弹窗
-fn draw_version_popup(f: &mut Frame, area: Rect, version_info: &VersionInfo) {
-    let popup_area = centered_rect(60, 20, area);
-    
-    f.render_widget(Clear, popup_area);
-    
-    let version_text = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("本地版本: ", Style::default().fg(Color::Yellow)),
-            Span::raw(&version_info.local),
-        ]),
-        Line::from(vec![
-            Span::styled("远程版本: ", Style::default().fg(Color::Yellow)),
-            Span::raw(&version_info.remote),
-        ]),
-        Line::from(""),
-        Line::from("发现新版本！建议更新以获得最新功能。"),
-    ];
+// 已移除版本对比弹窗绘制函数
 
-    let popup = Paragraph::new(version_text)
-        .alignment(Alignment::Center)
-        .block(Block::default()
-            .title("📦 版本检查")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Red)));
-    // 修复渲染区域错误，应在居中弹窗区域绘制
-    f.render_widget(popup, popup_area);
-}
-
-/// 创建居中的矩形区域
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
-}
+// 已移除居中弹窗辅助函数
 
