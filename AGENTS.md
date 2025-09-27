@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## 项目结构与模块组织
-- `src/main.rs` 程序入口；`device_monitor.rs` 设备与 scrcpy 管理；`tui.rs` 终端界面；`single_instance.rs` 单实例；`updater.rs` 在线更新。
+- `src/main.rs` 程序入口；`device_monitor.rs` 设备与 scrcpy 管理；`tui.rs` 终端界面；`single_instance.rs` 单实例。
 - `Cargo.toml` 依赖与构建；`.github/workflows` CI 构建与发布；`README.md` 使用说明。
 - 目标平台：Windows，发布包内置 `scrcpy/`（无需额外安装）。
 
@@ -18,7 +18,7 @@
 
 ## 测试指南
 - 推荐使用内置单元测试（`#[cfg(test)]`），模块内 `mod tests { ... }`。
-- 覆盖关键分支：设备检测、进程管理、TUI 状态渲染、更新流程。
+- 覆盖关键分支：设备检测、进程管理、TUI 状态渲染。
 - 约定：用例命名清晰可读，断言可复现，避免对真实设备做强依赖。
 
 ## 提交与 Pull Request 规范

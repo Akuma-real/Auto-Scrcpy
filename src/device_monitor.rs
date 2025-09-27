@@ -29,13 +29,19 @@ impl DeviceMonitor {
     /// 检查设备连接状态（实时检测，性能优化版本）
     pub async fn check_devices(&self) -> Result<Vec<crate::tui::DeviceInfo>, String> {
         use tokio::process::Command;
+        use tokio::time::{timeout, Duration};
         
-        // 使用更短的超时时间加快adb响应
-        let output = Command::new(&self.adb_exe)
-            .arg("devices")
-            .output()
-            .await
-            .map_err(|e| format!("执行adb命令失败: {}", e))?;
+        // 为 adb devices 增加命令级超时，避免 adb 异常挂死
+        let output = match timeout(
+            Duration::from_secs(2),
+            Command::new(&self.adb_exe)
+                .arg("devices")
+                .output(),
+        ).await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => return Err(format!("执行adb命令失败: {}", e)),
+            Err(_) => return Err("adb devices 命令超时".to_string()),
+        };
 
         if !output.status.success() {
             return Err("adb devices 命令执行失败".to_string());
