@@ -431,7 +431,8 @@ fn draw_version_popup(f: &mut Frame, area: Rect, version_info: &VersionInfo) {
             .title("📦 版本检查")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Red)));
-    f.render_widget(popup, area);
+    // 修复渲染区域错误，应在居中弹窗区域绘制
+    f.render_widget(popup, popup_area);
 }
 
 /// 创建居中的矩形区域
